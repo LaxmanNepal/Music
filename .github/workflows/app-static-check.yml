@@ -1,0 +1,44 @@
+name: SOUTH MUSIC Static Check
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: |
+          node --check assets/app.js
+          node --check assets/recommendationEngine.js
+          node --check assets/boot.js
+      - name: Validate JSON and references
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('data')
+          songs=json.loads((root/'songs.json').read_text())
+          artists=json.loads((root/'artists.json').read_text())
+          albums=json.loads((root/'albums.json').read_text())
+          artist_ids={x['id'] for x in artists}; album_ids={x['id'] for x in albums}
+          ids=[]
+          for s in songs:
+              assert s.get('id') and s['id'] not in ids, f'duplicate/missing song id: {s.get("id")}'
+              ids.append(s['id'])
+              assert s.get('artistId') in artist_ids, f'missing artist: {s["id"]}'
+              assert s.get('albumId') in album_ids, f'missing album: {s["id"]}'
+              assert isinstance(s.get('durationSeconds'),(int,float)) and s['durationSeconds']>0, f'invalid duration: {s["id"]}'
+              src=s.get('source',{})
+              assert isinstance(src.get('streamingAllowed'),bool), f'missing streaming permission: {s["id"]}'
+              if src['streamingAllowed']:
+                  assert src.get('provider') and src.get('url') and src.get('license'), f'incomplete rights metadata: {s["id"]}'
+                  assert s.get('audio',{}).get('url'), f'missing audio URL: {s["id"]}'
+          print(f'validated {len(songs)} songs, {len(artists)} artists, {len(albums)} albums')
+          PY
