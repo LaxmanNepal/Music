@@ -1,0 +1,46 @@
+name: Publish Audius frontend configuration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-config:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate public Audius config
+        env:
+          AUDIUS_API_KEY: ${{ secrets.AUDIUS_API_KEY }}
+        run: |
+          if [ -z "$AUDIUS_API_KEY" ]; then
+            echo "AUDIUS_API_KEY is not configured; leaving placeholder config."
+            exit 0
+          fi
+          python - <<'PY'
+          import json, os
+          key = os.environ['AUDIUS_API_KEY']
+          # Audius documents API keys as safe for frontend use; bearer tokens are not.
+          with open('assets/audius-config.js', 'w', encoding='utf-8') as f:
+              f.write('window.SOUTH_MUSIC_CONFIG=' + json.dumps({'audiusApiKey': key}) + ';\n')
+          PY
+
+      - name: Commit generated config
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet -- assets/audius-config.js; then
+            echo "No configuration change."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/audius-config.js
+          git commit -m "chore: publish Audius frontend configuration"
+          git push
