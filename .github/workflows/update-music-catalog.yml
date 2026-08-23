@@ -1,4 +1,4 @@
-name: Update Music Catalog
+name: Validate and Refresh Music Catalog
 on:
   schedule:
     - cron: '17 */6 * * *'
@@ -10,31 +10,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate catalog JSON
+      - name: Validate catalog integrity
         run: |
           python - <<'PY'
-          import json, pathlib
-          files=['songs.json','artists.json','albums.json','genres.json','languages.json','moods.json']
-          for f in files:
-              json.load(open('data/'+f,encoding='utf-8'))
-              print('valid',f)
-          songs=json.load(open('data/songs.json'))
-          ids=[s['id'] for s in songs]
-          assert len(ids)==len(set(ids)), 'duplicate song IDs'
+          import json, pathlib, re
+          root=pathlib.Path('data')
+          names=['songs','artists','albums','genres','languages','moods','trending','featured']
+          data={n:json.loads((root/f'{n}.json').read_text(encoding='utf-8')) for n in names}
+          songs=data['songs']; artists={x['id'] for x in data['artists']}; albums={x['id'] for x in data['albums']}
+          genres=set(data['genres']); languages=set(data['languages']); moods=set(data['moods'])
+          assert len({s.get('id') for s in songs})==len(songs), 'duplicate song IDs'
+          seen=[]
           for s in songs:
+              assert s.get('id') and s.get('title') and s.get('artistId'), f'missing identity: {s}'
+              assert s['artistId'] in artists, f"missing artist reference: {s['id']}"
+              if s.get('albumId') is not None: assert s['albumId'] in albums, f"missing album reference: {s['id']}"
+              assert isinstance(s.get('durationSeconds'),(int,float)) and s['durationSeconds']>0, f"bad duration: {s['id']}"
+              assert s.get('language') in languages or s.get('language')=='Unknown', f"unknown language: {s['id']}"
+              for g in s.get('genres',[]): assert g in genres or g=='Unknown', f"unknown genre {g}: {s['id']}"
+              for m in s.get('moods',[]): assert m in moods or m=='Unknown', f"unknown mood {m}: {s['id']}"
               src=s.get('source',{})
-              assert src.get('streamingAllowed') is True or src.get('streamingAllowed') is False
+              assert src.get('streamingAllowed') in (True,False), f"missing streaming permission: {s['id']}"
               if src.get('streamingAllowed') is True:
-                  assert src.get('provider') and src.get('url') and src.get('license') and s.get('audio',{}).get('url')
-          print('catalog checks passed:',len(songs),'songs')
+                  assert src.get('provider') and src.get('url') and src.get('license'), f"incomplete rights metadata: {s['id']}"
+                  assert s.get('audio',{}).get('url'), f"missing audio URL: {s['id']}"
+              norm=' '.join(re.sub(r'[^a-z0-9 ]','',str(s.get('title','')).lower()).split())
+              seen.append((norm,s.get('artistId'),s.get('albumId'),round(float(s.get('durationSeconds',0)))) )
+          duplicates={x for x in seen if seen.count(x)>1}
+          assert not duplicates, f'duplicate recordings detected: {sorted(duplicates)}'
+          print(f'Catalog OK: {len(songs)} songs, {len(artists)} artists, {len(albums)} albums')
           PY
-      - name: Refresh stats
+      - name: Refresh catalog statistics
         run: |
           python - <<'PY'
-          import json,datetime
-          songs=json.load(open('data/songs.json')); artists=json.load(open('data/artists.json')); albums=json.load(open('data/albums.json')); genres=json.load(open('data/genres.json')); languages=json.load(open('data/languages.json')); moods=json.load(open('data/moods.json'))
-          stats={'totalSongs':len(songs),'artists':len(artists),'albums':len(albums),'languages':len({s.get('language') for s in songs if s.get('language')}),'genres':len(genres),'moods':len(moods),'playableSongs':sum(s.get('source',{}).get('streamingAllowed') is True for s in songs),'unavailableSongs':sum(s.get('source',{}).get('streamingAllowed') is not True for s in songs),'latestUpdate':datetime.datetime.now(datetime.timezone.utc).isoformat(),'catalogGrowth':0}
-          open('data/stats.json','w').write(json.dumps(stats,indent=2)+'\n')
+          import json,datetime,pathlib
+          root=pathlib.Path('data'); songs=json.loads((root/'songs.json').read_text()); artists=json.loads((root/'artists.json').read_text()); albums=json.loads((root/'albums.json').read_text()); genres=json.loads((root/'genres.json').read_text()); languages=json.loads((root/'languages.json').read_text()); moods=json.loads((root/'moods.json').read_text())
+          stats={'totalSongs':len(songs),'artists':len(artists),'albums':len(albums),'languages':len(languages),'genres':len(genres),'moods':len(moods),'playableSongs':sum(s.get('source',{}).get('streamingAllowed') is True for s in songs),'unavailableSongs':sum(s.get('source',{}).get('streamingAllowed') is not True for s in songs),'latestUpdate':datetime.datetime.now(datetime.timezone.utc).isoformat(),'catalogGrowth':0}
+          (root/'stats.json').write_text(json.dumps(stats,indent=2,ensure_ascii=False)+'\n')
           PY
       - name: Commit generated stats
         run: |
