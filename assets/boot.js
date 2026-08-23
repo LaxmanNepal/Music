@@ -1,1 +1,2 @@
 const target=sessionStorage.getItem('southMusicRedirect');if(target&&location.pathname==='/music/'){sessionStorage.removeItem('southMusicRedirect');history.replaceState({},'',target)}
+const NativeAudio=window.Audio;window.Audio=function(){const a=NativeAudio.call(document);a.id='south-audio';a.preload='metadata';a.style.display='none';document.body.appendChild(a);return a};window.Audio.prototype=NativeAudio.prototype;
