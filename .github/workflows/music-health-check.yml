@@ -3,26 +3,38 @@ on:
   schedule:
     - cron: '41 */6 * * *'
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   health:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate playable sources and references
+      - name: Validate sources, references and HTTP streaming support
         run: |
           python - <<'PY'
-          import json,urllib.request
-          songs=json.load(open('data/songs.json')); artists={x['id'] for x in json.load(open('data/artists.json'))}; albums={x['id'] for x in json.load(open('data/albums.json'))}
-          playable=broken=missing=0
+          import json,urllib.request,urllib.error
+          songs=json.load(open('data/songs.json',encoding='utf-8'))
+          artists={x['id'] for x in json.load(open('data/artists.json',encoding='utf-8'))}
+          albums={x['id'] for x in json.load(open('data/albums.json',encoding='utf-8'))}
+          playable=broken=missing=bad_meta=0
           for s in songs:
               if s.get('artistId') not in artists: missing+=1
-              if s.get('albumId') not in albums: missing+=1
+              if s.get('albumId') is not None and s.get('albumId') not in albums: missing+=1
               src=s.get('source',{})
               if src.get('streamingAllowed') is True:
                   playable+=1
+                  audio=s.get('audio',{})
+                  if not audio.get('format') or not audio.get('bitrate') or not audio.get('sampleRate'): bad_meta+=1
                   try:
-                      r=urllib.request.urlopen(urllib.request.Request(s['audio']['url'],method='HEAD'),timeout=15)
-                      print('OK',r.status,s['title'])
+                      req=urllib.request.Request(audio['url'],headers={'Range':'bytes=0-1023','User-Agent':'SouthMusicHealthCheck/1.0'})
+                      with urllib.request.urlopen(req,timeout=20) as r:
+                          status=r.status
+                          ctype=r.headers.get('Content-Type','')
+                          accept=r.headers.get('Accept-Ranges','')
+                          if status not in (200,206) or ('audio' not in ctype.lower() and 'octet-stream' not in ctype.lower()):
+                              broken+=1; print('BAD',s['title'],status,ctype,accept)
+                          else: print('OK',s['title'],status,ctype,accept)
                   except Exception as e:
                       broken+=1; print('BROKEN',s['title'],e)
           print(f'Total Songs: {len(songs)}')
@@ -30,5 +42,6 @@ jobs:
           print(f'Unavailable: {len(songs)-playable}')
           print(f'Broken Audio: {broken}')
           print(f'Missing References: {missing}')
-          if broken: raise SystemExit('Playable source health check failed')
+          print(f'Incomplete Audio Metadata: {bad_meta}')
+          if broken or missing or bad_meta: raise SystemExit('Music health check failed')
           PY
