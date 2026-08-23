@@ -28,10 +28,10 @@ jobs:
           artists=json.loads((root/'artists.json').read_text())
           albums=json.loads((root/'albums.json').read_text())
           artist_ids={x['id'] for x in artists}; album_ids={x['id'] for x in albums}
-          ids=[]
+          ids=set()
           for s in songs:
               assert s.get('id') and s['id'] not in ids, f'duplicate/missing song id: {s.get("id")}'
-              ids.append(s['id'])
+              ids.add(s['id'])
               assert s.get('artistId') in artist_ids, f'missing artist: {s["id"]}'
               assert s.get('albumId') in album_ids, f'missing album: {s["id"]}'
               assert isinstance(s.get('durationSeconds'),(int,float)) and s['durationSeconds']>0, f'invalid duration: {s["id"]}'
@@ -42,3 +42,12 @@ jobs:
                   assert s.get('audio',{}).get('url'), f'missing audio URL: {s["id"]}'
           print(f'validated {len(songs)} songs, {len(artists)} artists, {len(albums)} albums')
           PY
+      - name: Verify app entry files
+        run: |
+          test -f index.html
+          test -f 404.html
+          test -f manifest.json
+          test -f sw.js
+          test -f assets/styles.css
+          test -f assets/a11y.css
+          echo "SOUTH MUSIC entry files verified"
