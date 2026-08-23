@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /music/
+Sitemap: https://laxmannepal.github.io/music/sitemap.xml
