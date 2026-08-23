@@ -1,9 +1,15 @@
 const API='https://api.audius.co/v1';
-const KEY='southMusicAudiusKey';
-const getKey=()=>localStorage.getItem(KEY)||'';
+const STORAGE_KEY='southMusicAudiusKey';
+const getKey=()=>window.SOUTH_MUSIC_CONFIG?.audiusApiKey||localStorage.getItem(STORAGE_KEY)||'';
 const headers=()=>getKey()?{'X-API-Key':getKey()}:{};
-async function audius(path){const r=await fetch(`${API}${path}`,{headers:headers()});if(!r.ok)throw Error(`Audius ${r.status}`);return r.json()}
-const clean=(s)=>String(s||'').trim();
+async function audius(path){
+  const key=getKey();
+  if(!key) throw new Error('Audius API key is not configured');
+  const r=await fetch(`${API}${path}`,{headers:headers()});
+  if(!r.ok) throw Error(`Audius ${r.status}`);
+  return r.json();
+}
+const clean=s=>String(s||'').trim();
 function mapTrack(t){
   const genre=clean(t.genre)||'Unknown';
   const tags=Array.isArray(t.tags)?t.tags.map(clean).filter(Boolean):[];
@@ -15,7 +21,7 @@ async function fetchAudiusTracks(query=''){
   const path=query?`/tracks/search?query=${encodeURIComponent(query)}&limit=50`:'/tracks/trending?limit=50';
   const data=await audius(path);return (data.data||[]).map(mapTrack).filter(s=>s.durationSeconds>0&&s.audio.url);
 }
-async function fetchAudiusArtists(query=''){
-  const data=await audius(`/users/search?query=${encodeURIComponent(query||'music')}&limit=50`);return (data.data||[]).map(mapArtist);
+async function fetchAudiusArtists(query='music'){
+  const data=await audius(`/users/search?query=${encodeURIComponent(query)}&limit=50`);return (data.data||[]).map(mapArtist);
 }
-window.SOUTH_AUDIO_SOURCE={fetchAudiusTracks,fetchAudiusArtists};
+window.SOUTH_AUDIO_SOURCE={fetchAudiusTracks,fetchAudiusArtists,getKey,hasKey:()=>Boolean(getKey())};
