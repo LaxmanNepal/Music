@@ -2,26 +2,12 @@ const API='https://api.audius.co/v1';
 const STORAGE_KEY='southMusicAudiusKey';
 const getKey=()=>window.SOUTH_MUSIC_CONFIG?.audiusApiKey||localStorage.getItem(STORAGE_KEY)||'';
 const headers=()=>getKey()?{'X-API-Key':getKey()}:{};
-async function audius(path){
-  const key=getKey();
-  if(!key) throw new Error('Audius API key is not configured');
-  const r=await fetch(`${API}${path}`,{headers:headers()});
-  if(!r.ok) throw Error(`Audius ${r.status}`);
-  return r.json();
-}
+const cacheGet=k=>{try{const x=JSON.parse(localStorage.getItem('southAudius:'+k)||'null');return x&&Date.now()-x.at<300000?x.data:null}catch{return null}};
+const cachePut=(k,d)=>{try{localStorage.setItem('southAudius:'+k,JSON.stringify({at:Date.now(),data:d}))}catch{}return d};
+async function audius(path){const key=getKey();if(!key) return null;const r=await fetch(`${API}${path}`,{headers:headers(),credentials:'omit'});if(!r.ok)throw Error(`Audius ${r.status}`);return r.json()}
 const clean=s=>String(s||'').trim();
-function mapTrack(t){
-  const genre=clean(t.genre)||'Unknown';
-  const tags=Array.isArray(t.tags)?t.tags.map(clean).filter(Boolean):[];
-  const mood=tags.filter(x=>/happy|sad|chill|relax|romantic|focus|workout|sleep|energetic|party/i.test(x));
-  return {id:`audius-${t.id}`,title:t.title||'Unknown',slug:clean(t.permalink||t.id),artistId:`audius-user-${t.user?.id||t.user_id}`,albumId:t.album_id?`audius-album-${t.album_id}`:null,language:'Unknown',genres:[genre],moods:mood.length?mood:['Unknown'],durationSeconds:Number(t.duration)||0,artwork:t.artwork?.['150x150']||t.artwork?.['1000x1000']||null,audio:{url:`${API}/tracks/${t.id}/stream`,format:'MP3',bitrate:null,sampleRate:null,channels:null},source:{provider:'Audius',url:`https://audius.co${t.permalink?'/' + t.permalink:''}`,license:'Artist-published on Audius; verify applicable rights before commercial use',streamingAllowed:true},popularityScore:Number(t.play_count||0)};
-}
-function mapArtist(u){return {id:`audius-user-${u.id}`,name:u.name||'Unknown Artist',image:u.profile_picture?.['150x150']||u.profile_picture?.['1000x1000']||null,language:'Unknown',bio:u.bio||null}}
-async function fetchAudiusTracks(query=''){
-  const path=query?`/tracks/search?query=${encodeURIComponent(query)}&limit=50`:'/tracks/trending?limit=50';
-  const data=await audius(path);return (data.data||[]).map(mapTrack).filter(s=>s.durationSeconds>0&&s.audio.url);
-}
-async function fetchAudiusArtists(query='music'){
-  const data=await audius(`/users/search?query=${encodeURIComponent(query)}&limit=50`);return (data.data||[]).map(mapArtist);
-}
+function mapTrack(t){if(!t?.id||!t?.title||t.isStreamable==='false')return null;const genre=clean(t.genre)||null;const mood=clean(t.mood)||null;return{id:`audius-${t.id}`,title:t.title,slug:clean(t.permalink||t.id),artistId:`audius-user-${t.user?.id||t.user_id}`,albumId:t.album_id?`audius-album-${t.album_id}`:null,language:null,genres:genre?[genre]:[],moods:mood?[mood]:[],durationSeconds:Number(t.duration)||0,artwork:t.artwork?.['480x480']||t.artwork?.['1000x1000']||t.artwork?.['150x150']||null,audio:{url:`${API}/tracks/${encodeURIComponent(t.id)}/stream`,format:null,bitrate:null,sampleRate:null,channels:null},source:{provider:'Audius',url:t.permalink?`https://audius.co${t.permalink.startsWith('/')?t.permalink:'/'+t.permalink}`:`https://audius.co/`,license:t.license||null,streamingAllowed:t.isStreamable!=='false',providerPlayback:true},popularityScore:Number(t.playCount||t.play_count||0),publishedAt:t.releaseDate||t.release_date||null,_audius:true}}
+function mapArtist(u){return u?.id?{id:`audius-user-${u.id}`,name:u.name||'Unknown Artist',image:u.profile_picture?.['480x480']||u.profile_picture?.['1000x1000']||u.profile_picture?.['150x150']||null,language:null,bio:u.bio||null}:null}
+async function fetchAudiusTracks(query=''){const key=query?`search:${query}`:'trending';const hit=cacheGet(key);if(hit)return hit;try{const path=query?`/tracks/search?query=${encodeURIComponent(query)}&limit=50&sort_method=relevant`:'/tracks/trending?limit=50&time=week';const j=await audius(path);return cachePut(key,(j?.data||[]).map(mapTrack).filter(Boolean).filter(x=>x.durationSeconds>0))}catch{return[]}}
+async function fetchAudiusArtists(query=''){const key=`artists:${query}`;const hit=cacheGet(key);if(hit)return hit;try{const j=await audius(`/users/search?query=${encodeURIComponent(query||'music')}&limit=50`);return cachePut(key,(j?.data||[]).map(mapArtist).filter(Boolean))}catch{return[]}}
 window.SOUTH_AUDIO_SOURCE={fetchAudiusTracks,fetchAudiusArtists,getKey,hasKey:()=>Boolean(getKey())};
