@@ -1,1 +1,12 @@
-{"totalSongs":4,"artists":1,"albums":1,"languages":1,"genres":3,"moods":5,"playableSongs":4,"unavailableSongs":0,"latestUpdate":"2026-08-23T00:00:00Z","catalogGrowth":0,"note":"Generated catalog statistics. Run the catalog workflow to refresh."}
+{
+  "totalSongs": 4,
+  "artists": 1,
+  "albums": 1,
+  "languages": 10,
+  "genres": 21,
+  "moods": 10,
+  "playableSongs": 4,
+  "unavailableSongs": 0,
+  "latestUpdate": "2026-08-23T10:15:11.957117+00:00",
+  "catalogGrowth": 0
+}
