@@ -1,0 +1,45 @@
+name: Update Music Catalog
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  validate-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate catalog JSON
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          files=['songs.json','artists.json','albums.json','genres.json','languages.json','moods.json']
+          for f in files:
+              json.load(open('data/'+f,encoding='utf-8'))
+              print('valid',f)
+          songs=json.load(open('data/songs.json'))
+          ids=[s['id'] for s in songs]
+          assert len(ids)==len(set(ids)), 'duplicate song IDs'
+          for s in songs:
+              src=s.get('source',{})
+              assert src.get('streamingAllowed') is True or src.get('streamingAllowed') is False
+              if src.get('streamingAllowed') is True:
+                  assert src.get('provider') and src.get('url') and src.get('license') and s.get('audio',{}).get('url')
+          print('catalog checks passed:',len(songs),'songs')
+          PY
+      - name: Refresh stats
+        run: |
+          python - <<'PY'
+          import json,datetime
+          songs=json.load(open('data/songs.json')); artists=json.load(open('data/artists.json')); albums=json.load(open('data/albums.json')); genres=json.load(open('data/genres.json')); languages=json.load(open('data/languages.json')); moods=json.load(open('data/moods.json'))
+          stats={'totalSongs':len(songs),'artists':len(artists),'albums':len(albums),'languages':len({s.get('language') for s in songs if s.get('language')}),'genres':len(genres),'moods':len(moods),'playableSongs':sum(s.get('source',{}).get('streamingAllowed') is True for s in songs),'unavailableSongs':sum(s.get('source',{}).get('streamingAllowed') is not True for s in songs),'latestUpdate':datetime.datetime.now(datetime.timezone.utc).isoformat(),'catalogGrowth':0}
+          open('data/stats.json','w').write(json.dumps(stats,indent=2)+'\n')
+          PY
+      - name: Commit generated stats
+        run: |
+          git config user.name 'south-music-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/stats.json
+          git diff --cached --quiet || git commit -m 'chore: refresh catalog stats'
+          git push
