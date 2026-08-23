@@ -1,0 +1,34 @@
+name: Music Health Check
+on:
+  schedule:
+    - cron: '41 */6 * * *'
+  workflow_dispatch:
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate playable sources and references
+        run: |
+          python - <<'PY'
+          import json,urllib.request
+          songs=json.load(open('data/songs.json')); artists={x['id'] for x in json.load(open('data/artists.json'))}; albums={x['id'] for x in json.load(open('data/albums.json'))}
+          playable=broken=missing=0
+          for s in songs:
+              if s.get('artistId') not in artists: missing+=1
+              if s.get('albumId') not in albums: missing+=1
+              src=s.get('source',{})
+              if src.get('streamingAllowed') is True:
+                  playable+=1
+                  try:
+                      r=urllib.request.urlopen(urllib.request.Request(s['audio']['url'],method='HEAD'),timeout=15)
+                      print('OK',r.status,s['title'])
+                  except Exception as e:
+                      broken+=1; print('BROKEN',s['title'],e)
+          print(f'Total Songs: {len(songs)}')
+          print(f'Playable: {playable}')
+          print(f'Unavailable: {len(songs)-playable}')
+          print(f'Broken Audio: {broken}')
+          print(f'Missing References: {missing}')
+          if broken: raise SystemExit('Playable source health check failed')
+          PY
