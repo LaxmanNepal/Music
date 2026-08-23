@@ -1,0 +1,14 @@
+const KEY='southMusicSignals';const PREF='southMusicPreferences';
+const get=()=>JSON.parse(localStorage.getItem(KEY)||'{}');const save=x=>localStorage.setItem(KEY,JSON.stringify(x));
+export function signal(id,patch={}){const s=get();s[id]??={plays:0,completed:0,skips:0,likes:0,replays:0,totalSeconds:0,lastPlayed:null};Object.assign(s[id],patch);save(s);return s[id]}
+export function getPreferences(){return JSON.parse(localStorage.getItem(PREF)||'{"languages":[],"genres":[],"moods":[],"completed":false}')} 
+const sim=(a,b,field)=>{const A=new Set([...(a[field]||[])]),B=new Set([...(b[field]||[])]);if(!A.size||!B.size)return 0;let n=0;A.forEach(x=>B.has(x)&&n++);return n/Math.max(A.size,B.size)};
+export function scoreSong(song,catalog){const p=getPreferences(),s=get()[song.id]||{};const history=catalog.filter(x=>{const h=get()[x.id];return h&&h.plays>0});let userHistory=0;history.forEach(h=>{const x=get()[h.id];if(x?.plays) userHistory+=x.plays});const lang=p.languages.includes(song.language)?1:0;const genre=sim(song,{genres:p.genres},'genres');const mood=sim(song,{moods:p.moods},'moods');const artist=history.some(x=>x.artistId===song.artistId)?1:0;const completion=s.plays?s.completed/s.plays:0;const freshness=s.lastPlayed?Math.max(0,1-(Date.now()-new Date(s.lastPlayed).getTime())/(7*864e5)):1;const popularity=Math.min(1,(s.plays||0)/10);let score=lang*.20+genre*.20+artist*.15+mood*.15+Math.min(1,userHistory/20)*.15+completion*.05+freshness*.05+popularity*.05;if(s.skips>=3)score-=.30;if(completion>=.8)score+=.20;if(s.replays>=3)score+=.25;return score}
+export function recommend(catalog,{limit=10,exclude=[]}={}){const blocked=new Set(exclude);const ranked=catalog.filter(x=>x.source?.streamingAllowed===true&&!blocked.has(x.id)).map(x=>({x,score:scoreSong(x,catalog)})).sort((a,b)=>b.score-a.score);const out=[];const artistCount={};for(const item of ranked){const a=item.x.artistId;if((artistCount[a]||0)>=5)continue;const last=out.at(-1);if(last&&last.artistId===a)continue;out.push(item.x);artistCount[a]=(artistCount[a]||0)+1;if(out.length>=limit)break}return out}
+export function queueFor(song,catalog){const related=catalog.filter(x=>x.id!==song.id);const ranked=recommend(related,{limit:20,exclude:[song.id]});return [song,...ranked]}
+export function markPlayStart(id){const s=signal(id);s.plays=(s.plays||0)+1;s.lastPlayed=new Date().toISOString();save({...get(),[id]:s})}
+export function markComplete(id){const s=signal(id);s.completed=(s.completed||0)+1;save({...get(),[id]:s})}
+export function markSkip(id){const s=signal(id);s.skips=(s.skips||0)+1;save({...get(),[id]:s})}
+export function markReplay(id){const s=signal(id);s.replays=(s.replays||0)+1;save({...get(),[id]:s})}
+export function addListeningSeconds(id,n){const s=signal(id);s.totalSeconds=(s.totalSeconds||0)+Math.max(0,n);save({...get(),[id]:s})}
+export function resetModel(){localStorage.removeItem(KEY)}
